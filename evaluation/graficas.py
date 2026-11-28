@@ -12,34 +12,50 @@ CARPETA_PLOTS.mkdir(parents=True, exist_ok=True)
 
 
 def graficar_anti_sobreajuste(datos_json):
-    """Genera curvas de F1-Score y Loss (Train vs Validación) por época."""
+    """Genera curvas de F1-Score y Log-Loss homogéneas (Train vs Validación real) por época."""
     curvas = datos_json["curvas_entrenamiento"]
     epocas = curvas["epocas"]
+    mejor_epoca = curvas.get("mejor_epoca", epocas[-1])
+    idx_mejor = min(max(mejor_epoca - 1, 0), len(epocas) - 1)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
 
     # 1. F1-Score por época
     ax1.plot(epocas, curvas["train_f1"], label="Entrenamiento (Train)", linewidth=2)
-    ax1.plot(epocas, curvas["val_f1"], label="Validación (Val)", linewidth=2, linestyle="--")
+    ax1.plot(epocas, curvas["val_f1"], label="Validación Real (Val)", linewidth=2, linestyle="--")
+    ax1.axvline(
+        mejor_epoca,
+        color="green",
+        linestyle=":",
+        linewidth=1.8,
+        label=f"Mejor Checkpoint (Época {mejor_epoca})",
+    )
     ax1.set_title("Generalización: F1-Score por Época")
     ax1.set_xlabel("Época")
     ax1.set_ylabel("F1-Score Macro")
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
-    # 2. Pérdida (Loss) por época
+    # 2. Pérdida (Log-Loss post-época) por época
     ax2.plot(epocas, curvas["train_loss"], label="Entrenamiento (Train)", linewidth=2)
-    ax2.plot(epocas, curvas["val_loss"], label="Validación (Val)", linewidth=2, linestyle="--")
-    ax2.set_title("Control de Sobreajuste: Pérdida (Loss) por Época")
+    ax2.plot(epocas, curvas["val_loss"], label="Validación Real (Val)", linewidth=2, linestyle="--")
+    ax2.axvline(
+        mejor_epoca,
+        color="green",
+        linestyle=":",
+        linewidth=1.8,
+        label=f"Mejor Checkpoint (Época {mejor_epoca})",
+    )
+    ax2.set_title("Control de Sobreajuste: Log-Loss por Época")
     ax2.set_xlabel("Época")
-    ax2.set_ylabel("Log-Loss")
+    ax2.set_ylabel("Log-Loss (Entropía Cruzada)")
     ax2.grid(True, alpha=0.3)
     ax2.legend()
 
-    brecha = abs(curvas["train_f1"][-1] - curvas["val_f1"][-1])
+    brecha = abs(curvas["train_f1"][idx_mejor] - curvas["val_f1"][idx_mejor])
     fig.suptitle(
-        f"Diagnóstico de Sobreajuste | Brecha final Train-Val: {brecha:.4f}",
-        fontsize=12,
+        f"Diagnóstico de Sobreajuste (Sin Data Leakage) | Checkpoint Época {mejor_epoca} | Brecha Train-Val: {brecha:.4f}",
+        fontsize=11.5,
         fontweight="bold",
     )
     plt.tight_layout()
@@ -48,7 +64,7 @@ def graficar_anti_sobreajuste(datos_json):
 
 
 def graficar_matriz_confusion(datos_json):
-    """Genera la matriz de confusión sobre el conjunto TEST intacto."""
+    """Genera la matriz de confusión sobre el conjunto TEST intacto (100% datos reales)."""
     metricas = datos_json["metricas_test"]
     cm = np.array(metricas["matriz_confusion"])
     clases = metricas["clases"]
@@ -64,7 +80,7 @@ def graficar_matriz_confusion(datos_json):
         yticklabels=clases,
         ylabel="Etiqueta Real",
         xlabel="Etiqueta Predicha",
-        title=f"Matriz de Confusión en Test (F1 = {metricas['f1_macro']:.4f})",
+        title=f"Matriz de Confusión en Test Real (F1 = {metricas['f1_macro']:.4f})",
     )
     plt.setp(ax.get_xticklabels(), rotation=25, ha="right")
 
@@ -90,21 +106,24 @@ def graficar_evolucion_y_tendencia(df_hist):
     """Genera evolución de GA-GWO por iteración y diagrama de cajas (tendencia central)."""
     iters = df_hist["iteracion"]
 
-    # Gráfica 3: Evolución del líder Alfa, Media, Mediana y banda de desviación estándar
+    # Gráfica 3: Evolución del líder Alfa, Media, Mediana y banda de desviación estándar acotada a [0, 1]
     fig, ax = plt.subplots(figsize=(9, 5))
+    banda_inf = np.clip(df_hist["media"] - df_hist["desv_std"], 0.0, 1.0)
+    banda_sup = np.clip(df_hist["media"] + df_hist["desv_std"], 0.0, 1.0)
+
     ax.plot(iters, df_hist["fit_alfa"], marker="o", linewidth=2.2, label="Mejor Líder (Alfa)")
     ax.plot(iters, df_hist["media"], marker="s", linestyle="--", label="Media Población")
     ax.plot(iters, df_hist["mediana"], marker="^", linestyle=":", label="Mediana Población")
     ax.fill_between(
         iters,
-        df_hist["media"] - df_hist["desv_std"],
-        df_hist["media"] + df_hist["desv_std"],
+        banda_inf,
+        banda_sup,
         alpha=0.18,
         label="Media ± Desv. Estándar",
     )
     ax.set_title("Evolución del Algoritmo Híbrido GA-GWO por Iteración")
     ax.set_xlabel("Iteración (Generación)")
-    ax.set_ylabel("F1-Score Macro (Validación)")
+    ax.set_ylabel("F1-Score Macro (Validación Real)")
     ax.set_xticks(iters)
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -121,7 +140,7 @@ def graficar_evolucion_y_tendencia(df_hist):
     ax.boxplot(listas_fit, tick_labels=iters, patch_artist=True)
     ax.set_title("Distribución y Tendencia Central de la Población por Iteración")
     ax.set_xlabel("Iteración")
-    ax.set_ylabel("F1-Score Macro")
+    ax.set_ylabel("F1-Score Macro (Validación Real)")
     ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(CARPETA_PLOTS / "4_boxplot_tendencia_central.png", dpi=300)
@@ -148,7 +167,7 @@ def graficar_comparativa_poblaciones():
 
     ax.set_title("Impacto del Tamaño de Población (GA) en la Convergencia")
     ax.set_xlabel("Iteración")
-    ax.set_ylabel("Mejor F1-Score Macro (Alfa)")
+    ax.set_ylabel("Mejor F1-Score Macro (Alfa en Validación Real)")
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()

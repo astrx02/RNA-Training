@@ -21,11 +21,41 @@ class HibridoGAGWO:
         self.rng = np.random.default_rng(seed)
         self.dim = len(LB)
 
-    def _seleccion_torneo(self, poblacion, fitness, k=3):
-        k = min(k, len(poblacion))
-        indices = self.rng.choice(len(poblacion), size=k, replace=False)
-        mejor_idx = indices[np.argmax(fitness[indices])]
-        return poblacion[mejor_idx].copy()
+    def _seleccion_torneo(self, poblacion, fitness, k=3, excluir_idx=None):
+        disponibles = [i for i in range(len(poblacion)) if i != excluir_idx]
+        k = min(k, len(disponibles))
+        indices = self.rng.choice(disponibles, size=k, replace=False)
+        mejor_idx = int(indices[np.argmax(fitness[indices])])
+        return mejor_idx, poblacion[mejor_idx].copy()
+
+    @staticmethod
+    def _clave_vector(vec):
+        return tuple(np.round(vec, 6))
+
+    def _actualizar_lideres_distintos(self, poblacion, fitness, lideres_previos):
+        """
+        Selecciona los 3 mejores individuos DISTINTOS (Alfa, Beta, Delta) evitando
+        el colapso de los 3 líderes a clones idénticos de Alfa.
+        """
+        unicos = {}
+        for vec, fit in zip(poblacion, fitness):
+            clave = self._clave_vector(vec)
+            fit_f = float(fit)
+            if clave not in unicos or fit_f > unicos[clave][1]:
+                unicos[clave] = (vec.copy(), fit_f)
+
+        for vec, fit in lideres_previos:
+            if fit > -np.inf:
+                clave = self._clave_vector(vec)
+                fit_f = float(fit)
+                if clave not in unicos or fit_f > unicos[clave][1]:
+                    unicos[clave] = (vec.copy(), fit_f)
+
+        ordenados = sorted(unicos.values(), key=lambda par: par[1], reverse=True)
+        while len(ordenados) < 3:
+            ordenados.append((ordenados[-1][0].copy(), ordenados[-1][1]))
+
+        return ordenados[0], ordenados[1], ordenados[2]
 
     def ejecutar(self, callback=None):
         """
@@ -38,13 +68,10 @@ class HibridoGAGWO:
         # 1. Población inicial uniforme en [LB, UB] (Base GA)
         poblacion = self.rng.uniform(LB, UB, size=(self.n_poblacion, self.dim))
 
-        # Líderes globales de GWO: Alfa, Beta, Delta
-        x_alfa = np.zeros(self.dim)
-        x_beta = np.zeros(self.dim)
-        x_delta = np.zeros(self.dim)
-        fit_alfa = -np.inf
-        fit_beta = -np.inf
-        fit_delta = -np.inf
+        # Líderes globales distintos de GWO: Alfa, Beta, Delta
+        x_alfa, fit_alfa = np.zeros(self.dim), -np.inf
+        x_beta, fit_beta = np.zeros(self.dim), -np.inf
+        x_delta, fit_delta = np.zeros(self.dim), -np.inf
 
         historial = []
         cache_fitness = {}  # Evita re-evaluar los 3 líderes elitistas
@@ -55,7 +82,7 @@ class HibridoGAGWO:
 
             # --- FASE A: Evaluación ---
             for i in range(self.n_poblacion):
-                clave = tuple(np.round(poblacion[i], 6))
+                clave = self._clave_vector(poblacion[i])
                 if clave in cache_fitness:
                     fitness[i] = cache_fitness[clave]
                 else:
@@ -63,22 +90,23 @@ class HibridoGAGWO:
                     fitness[i] = score
                     cache_fitness[clave] = score
 
-            # --- FASE B: Actualizar jerarquía global (GWO) ---
-            candidatos_x = list(poblacion)
-            candidatos_f = list(fitness)
-            if fit_alfa > -np.inf:
-                candidatos_x.extend([x_alfa, x_beta, x_delta])
-                candidatos_f.extend([fit_alfa, fit_beta, fit_delta])
+            # --- FASE B: Actualizar jerarquía global de 3 líderes DISTINTOS (GWO) ---
+            (x_alfa, fit_alfa), (x_beta, fit_beta), (x_delta, fit_delta) = (
+                self._actualizar_lideres_distintos(
+                    poblacion,
+                    fitness,
+                    [(x_alfa, fit_alfa), (x_beta, fit_beta), (x_delta, fit_delta)],
+                )
+            )
 
-            orden = np.argsort(candidatos_f)[::-1]
-            x_alfa, fit_alfa = candidatos_x[orden[0]].copy(), float(candidatos_f[orden[0]])
-            x_beta, fit_beta = candidatos_x[orden[1]].copy(), float(candidatos_f[orden[1]])
-            x_delta, fit_delta = candidatos_x[orden[2]].copy(), float(candidatos_f[orden[2]])
+            # Factor de control lineal a en [2.0, 0.0] sobre las iteraciones reales
+            a = 2.0 * (1.0 - (t - 1) / max(1, self.max_iter - 1))
 
             # --- Registro estadístico para el Punto 4 ---
             stats_iter = {
                 "iteracion": t,
                 "n_poblacion": self.n_poblacion,
+                "parametro_a": round(float(a), 4),
                 "fit_alfa": fit_alfa,
                 "fit_beta": fit_beta,
                 "fit_delta": fit_delta,
@@ -95,14 +123,21 @@ class HibridoGAGWO:
             if callback is not None:
                 callback(stats_iter)
 
+            # En la última iteración ya no se desperdicia cómputo creando una generación no evaluada
+            if t == self.max_iter:
+                break
+
             # --- FASE C: Nueva generación (Base GA + Guía GWO) ---
-            nueva_poblacion = [x_alfa.copy(), x_beta.copy(), x_delta.copy()]  # Elitismo
-            a = 2.0 - t * (2.0 / self.max_iter)  # Factor de control de GWO
+            # Elitismo con 3 líderes distintos (nunca clones de Alfa)
+            nueva_poblacion = [x_alfa.copy(), x_beta.copy(), x_delta.copy()]
+            claves_en_nueva = {self._clave_vector(v) for v in nueva_poblacion}
 
             while len(nueva_poblacion) < self.n_poblacion:
-                # 1. Selección por torneo (GA)
-                padre1 = self._seleccion_torneo(poblacion, fitness, k=3)
-                padre2 = self._seleccion_torneo(poblacion, fitness, k=3)
+                # 1. Selección por torneo de 2 padres distintos (GA)
+                idx1, padre1 = self._seleccion_torneo(poblacion, fitness, k=3)
+                _, padre2 = self._seleccion_torneo(
+                    poblacion, fitness, k=3, excluir_idx=idx1
+                )
 
                 # 2. Cruce aritmético (GA)
                 if self.rng.random() < self.pc:
@@ -111,7 +146,7 @@ class HibridoGAGWO:
                 else:
                     hijo = padre1.copy()
 
-                # 3. Guía de caza hacia Alfa, Beta y Delta (GWO)
+                # 3. Guía de caza hacia Alfa, Beta y Delta distintos (GWO)
                 r1, r2 = self.rng.random(self.dim), self.rng.random(self.dim)
                 A1, C1 = 2.0 * a * r1 - a, 2.0 * r2
                 D_alfa = np.abs(C1 * x_alfa - hijo)
@@ -135,8 +170,14 @@ class HibridoGAGWO:
                     ruido = self.rng.normal(0.0, 0.1 * (UB - LB))
                     hijo[mascara_mut] += ruido[mascara_mut]
 
-                # 5. Acotar a los límites permitidos
+                # 5. Acotar a los límites permitidos y evitar clones exactos
                 hijo = np.clip(hijo, LB, UB)
+                if self._clave_vector(hijo) in claves_en_nueva:
+                    hijo = np.clip(
+                        hijo + self.rng.normal(0.0, 0.02 * (UB - LB)), LB, UB
+                    )
+
+                claves_en_nueva.add(self._clave_vector(hijo))
                 nueva_poblacion.append(hijo)
 
             poblacion = np.array(nueva_poblacion)
