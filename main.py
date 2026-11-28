@@ -6,7 +6,7 @@ from optimization.mlp_evaluator import MLPEvaluator, cargar_datos
 
 
 def imprimir_progreso(stats):
-    """Ejemplo de callback que tu compañero reemplazará por su barra/log de interfaz."""
+    """Ejemplo de callback interfaz."""
     print(
         f"[Iter {stats['iteracion']:02d}] "
         f"Alfa: {stats['fit_alfa']:.4f} | "
@@ -83,6 +83,6 @@ if __name__ == "__main__":
     ejecutar_pipeline(
         n_poblacion=10,
         max_iter=10,
-        eval_sample_size=25000,  # Cambia a None para la corrida final con los 100,000
+        eval_sample_size=25000,  # None para la corrida final con los 100,000
         epocas_finales=35,
     )
