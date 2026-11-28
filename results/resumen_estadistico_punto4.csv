@@ -1,4 +1,4 @@
 Poblacion_N,Mejor_F1_Alfa,Media_Final,Mediana_Final,Desv_Std_Final,Tiempo_Seg,Mejor_Config
-6,0.9914,0.991,0.9911,0.0004,54.95,"{'hidden_layer_sizes': (59, 52), 'alpha': 0.001045274620880195, 'learning_rate_init': 0.0223281938186328, 'activation': 'tanh'}"
-12,0.9925,0.9907,0.9905,0.0012,250.37,"{'hidden_layer_sizes': (128, 39), 'alpha': 3.8595477000969884e-05, 'learning_rate_init': 0.012435995132256314, 'activation': 'relu'}"
-20,0.9922,0.9905,0.9907,0.0013,581.27,"{'hidden_layer_sizes': (128, 34), 'alpha': 0.00126014276283553, 'learning_rate_init': 0.006088847442115369, 'activation': 'tanh'}"
+6,0.9882,0.987,0.9869,0.0007,108.36,"{'hidden_layer_sizes': (72, 52), 'alpha': 0.0026686584712925115, 'learning_rate_init': 0.006589612863994643, 'activation': 'tanh'}"
+12,0.988,0.9869,0.9867,0.0007,486.37,"{'hidden_layer_sizes': (57, 48), 'alpha': 0.00024340333684519508, 'learning_rate_init': 0.008733098684052462, 'activation': 'tanh'}"
+20,0.9891,0.9861,0.9859,0.0019,271.51,"{'hidden_layer_sizes': (22, 52), 'alpha': 0.02048271396233554, 'learning_rate_init': 0.02027485243674015, 'activation': 'tanh'}"
